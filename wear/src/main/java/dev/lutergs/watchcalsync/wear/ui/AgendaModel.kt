@@ -78,7 +78,7 @@ object AgendaBuilder {
                 occurrenceKey = event.occurrenceKey,
                 title = event.title,
                 timeLabel = timeLabel(event, zone),
-                location = event.location,
+                location = displayLocation(event.location),
                 dotColor = if (event.color == 0) Color.Gray else Color(event.color),
             )
         }
@@ -94,6 +94,23 @@ object AgendaBuilder {
         Instant.ofEpochMilli(event.startMillis)
             .atZone(if (event.allDay) ZoneOffset.UTC else zone)
             .toLocalDate()
+
+    /**
+     * Google Workspace events usually carry the video-call URL as their location.
+     * A truncated "https://…zoom.us/j/…" tells you nothing on a watch, so
+     * bare links collapse to a label. A location that merely *contains* a link
+     * (e.g. "회의실 A, https://…") keeps the human part.
+     */
+    private fun displayLocation(raw: String?): String? {
+        val location = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+
+        val withoutLinks = location
+            .split(Regex("[,\\n]"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("http://") && !it.startsWith("https://") }
+
+        return if (withoutLinks.isEmpty()) "화상회의" else withoutLinks.joinToString(", ")
+    }
 
     private fun timeLabel(event: CalendarEvent, zone: ZoneId): String {
         if (event.allDay) return "종일"

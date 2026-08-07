@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown in the watch's tile picker. Sketches the agenda layout: a heading and
+     three colour-chipped rows. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="192"
+    android:viewportHeight="192">
+
+    <path
+        android:fillColor="#1B1B1F"
+        android:pathData="M0,0h192v192h-192z" />
+
+    <!-- title -->
+    <path
+        android:fillColor="#C6C4D0"
+        android:pathData="M62,34h68v8h-68z" />
+
+    <!-- row 1 -->
+    <path android:fillColor="#F7B102" android:pathData="M30,66m-5,0a5,5 0 1,0 10,0a5,5 0 1,0 -10,0" />
+    <path android:fillColor="#B9A5FF" android:pathData="M44,58h44v7h-44z" />
+    <path android:fillColor="#E5E1E9" android:pathData="M44,70h110v9h-110z" />
+
+    <!-- row 2 -->
+    <path android:fillColor="#4986E7" android:pathData="M30,110m-5,0a5,5 0 1,0 10,0a5,5 0 1,0 -10,0" />
+    <path android:fillColor="#B9A5FF" android:pathData="M44,102h50v7h-50z" />
+    <path android:fillColor="#E5E1E9" android:pathData="M44,114h96v9h-96z" />
+
+    <!-- row 3 -->
+    <path android:fillColor="#42D692" android:pathData="M30,154m-5,0a5,5 0 1,0 10,0a5,5 0 1,0 -10,0" />
+    <path android:fillColor="#B9A5FF" android:pathData="M44,146h38v7h-38z" />
+    <path android:fillColor="#E5E1E9" android:pathData="M44,158h120v9h-120z" />
+</vector>

@@ -74,5 +74,17 @@ dependencies {
     implementation(libs.androidx.wear.compose.foundation)
     implementation(libs.androidx.wear.tooling.preview)
 
+    // Tiles run in the system's Tile renderer, not in this app's Compose tree,
+    // so they use ProtoLayout instead of Compose.
+    implementation(libs.androidx.wear.tiles)
+    implementation(libs.androidx.wear.protolayout)
+    implementation(libs.androidx.wear.protolayout.material3)
+    implementation(libs.androidx.wear.protolayout.expression)
+    // TileService returns ListenableFuture and is called on the main thread, so the
+    // snapshot read has to be bridged off it rather than blocked on.
+    implementation(libs.kotlinx.coroutines.guava)
+    debugImplementation(libs.androidx.wear.tiles.tooling)
+    implementation(libs.androidx.wear.tiles.tooling.preview)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -5,9 +5,11 @@ import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
+import androidx.wear.tiles.TileService
 import dev.lutergs.watchcalsync.shared.sync.SnapshotCodec
 import dev.lutergs.watchcalsync.shared.sync.SyncContract
 import dev.lutergs.watchcalsync.wear.data.SnapshotStore
+import dev.lutergs.watchcalsync.wear.tile.AgendaTileService
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -52,6 +54,11 @@ class CalendarDataListenerService : WearableListenerService() {
                     )
 
                     runBlocking { SnapshotStore.get(applicationContext).save(snapshot) }
+
+                    // Without this the tile would keep showing the previous agenda
+                    // until its own freshness interval elapsed.
+                    TileService.getUpdater(applicationContext)
+                        .requestUpdate(AgendaTileService::class.java)
                 }.onFailure { Log.e(TAG, "failed to handle snapshot", it) }
             }
         }
