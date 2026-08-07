@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">Cal Sync</string>
     <string name="tile_label">일정 · 다음 7일</string>
+    <string name="complication_label">다음 일정</string>
 </resources>

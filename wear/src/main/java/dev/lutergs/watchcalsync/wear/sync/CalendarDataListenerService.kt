@@ -8,6 +8,7 @@ import com.google.android.gms.wearable.WearableListenerService
 import androidx.wear.tiles.TileService
 import dev.lutergs.watchcalsync.shared.sync.SnapshotCodec
 import dev.lutergs.watchcalsync.shared.sync.SyncContract
+import dev.lutergs.watchcalsync.wear.complication.NextEventComplicationService
 import dev.lutergs.watchcalsync.wear.data.SnapshotStore
 import dev.lutergs.watchcalsync.wear.tile.AgendaTileService
 import kotlinx.coroutines.runBlocking
@@ -55,10 +56,13 @@ class CalendarDataListenerService : WearableListenerService() {
 
                     runBlocking { SnapshotStore.get(applicationContext).save(snapshot) }
 
-                    // Without this the tile would keep showing the previous agenda
-                    // until its own freshness interval elapsed.
+                    // Without these the tile and the watch face would keep showing
+                    // the previous agenda until their own update periods elapsed.
+                    // The complication in particular never polls, so this is the
+                    // only thing that refreshes it.
                     TileService.getUpdater(applicationContext)
                         .requestUpdate(AgendaTileService::class.java)
+                    NextEventComplicationService.requestUpdate(applicationContext)
                 }.onFailure { Log.e(TAG, "failed to handle snapshot", it) }
             }
         }

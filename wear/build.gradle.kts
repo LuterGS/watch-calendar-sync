@@ -83,6 +83,7 @@ dependencies {
     // TileService returns ListenableFuture and is called on the main thread, so the
     // snapshot read has to be bridged off it rather than blocked on.
     implementation(libs.kotlinx.coroutines.guava)
+    implementation(libs.androidx.wear.complications.datasource.ktx)
     debugImplementation(libs.androidx.wear.tiles.tooling)
     implementation(libs.androidx.wear.tiles.tooling.preview)
 
