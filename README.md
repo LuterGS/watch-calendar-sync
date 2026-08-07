@@ -81,7 +81,7 @@ grep unstable wear/build/compose-reports/wear-composables.txt
 - [x] **1단계** — `:mobile` 캘린더 읽기 단독 동작 (계정/캘린더/이벤트 로그 출력)
 - [x] **2단계** — Data Layer로 워치에 전송 (gzip, 변경 없을 때 전송 생략)
 - [x] **3단계** — `:wear` 아젠다 리스트 UI (날짜 그룹 + 색상 + 로터리 스크롤)
-- [ ] **4단계** — `ContentObserver` + `WorkManager` 자동 동기화
+- [x] **4단계** — `ContentObserver`(포그라운드) + content-URI 트리거(백그라운드) + 30분 주기 백스톱
 - [x] ~~5단계~~ — 캘린더별 on/off 필터 (중복 공휴일 때문에 1.5단계로 앞당김)
 - [ ] **5단계 (스트레치)** — Tile / Complication
 
@@ -96,3 +96,27 @@ adb -s <phone-serial> logcat -s WatchCalSync
 
 `distinct accounts = [...]` 줄에 개인/회사 계정이 **둘 다** 보이는지 확인하는 것이
 이 단계의 핵심이다.
+
+### 자동 동기화 구조
+
+변경 감지는 세 겹이다. 하나로는 안 되기 때문이다.
+
+| 경로 | 언제 | 왜 필요한가 |
+| --- | --- | --- |
+| `CalendarChangeObserver` | 앱이 떠 있을 때 | 즉시 반응. 단 프로세스와 함께 죽는다 |
+| `CalendarChangeWorker` (content-URI 트리거) | 프로세스가 죽어 있어도 | 시스템에 등록되므로 콜드 스타트로 실행됨 |
+| `CalendarSyncWorker` (30분 주기) | 항상 | 위 둘이 놓친 변경 보정 + 트리거 재무장 |
+
+**content-URI 트리거는 일회성 작업에만 붙는다.** 그래서 발동될 때마다 다시 등록해야
+하는데, 워커가 자기 자신을 재등록하면 안 된다 — 같은 unique work 이름에 `REPLACE`를
+쓰면 실행 중인 자기 자신이 취소된다. 재무장은 주기 워커와 앱 UI가 담당한다.
+
+동작 확인:
+
+```bash
+adb -s <phone> logcat -s WatchCalSync   # "calendar changed: pushed N events"
+adb -s <phone> shell dumpsys jobscheduler | grep -A20 CalendarChangeWorker
+```
+
+주기 워커는 `cmd jobscheduler run` 으로 앞당길 수 없다. WorkManager가 주기 도래 전
+실행을 거부한다 (`Delaying execution ... executed before schedule`).

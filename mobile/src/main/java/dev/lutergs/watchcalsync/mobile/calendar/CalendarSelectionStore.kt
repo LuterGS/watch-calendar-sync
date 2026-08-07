@@ -31,6 +31,9 @@ class CalendarSelectionStore(private val context: Context) {
             prefs[KEY_ENABLED]?.mapNotNull { it.toLongOrNull() }?.toSet()
         }
 
+    /** One-shot read, for callers that are not observing the flow. */
+    suspend fun enabledCalendarIds(): Set<Long>? = enabledCalendarIds.first()
+
     suspend fun setEnabled(ids: Set<Long>) {
         context.calendarSelectionDataStore.edit { prefs ->
             prefs[KEY_ENABLED] = ids.map { it.toString() }.toSet()

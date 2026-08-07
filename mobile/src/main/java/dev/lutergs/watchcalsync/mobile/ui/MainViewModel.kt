@@ -5,18 +5,18 @@ import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.lutergs.watchcalsync.mobile.calendar.CalendarChangeObserver
 import dev.lutergs.watchcalsync.mobile.calendar.CalendarReader
 import dev.lutergs.watchcalsync.mobile.calendar.CalendarSelectionStore
-import dev.lutergs.watchcalsync.mobile.sync.PushResult
+import dev.lutergs.watchcalsync.mobile.sync.CalendarSyncer
+import dev.lutergs.watchcalsync.mobile.sync.SyncOutcome
+import dev.lutergs.watchcalsync.mobile.sync.SyncScheduler
 import dev.lutergs.watchcalsync.mobile.sync.WatchSyncClient
 import dev.lutergs.watchcalsync.shared.model.CalendarEvent
 import dev.lutergs.watchcalsync.shared.model.CalendarInfo
-import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
-import dev.lutergs.watchcalsync.shared.sync.SnapshotCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -56,17 +56,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val reader = CalendarReader(app)
     private val selectionStore = CalendarSelectionStore(app)
+    private val syncer = CalendarSyncer(app)
     private val watchSync = WatchSyncClient(app)
-
-    /** Most recent snapshot, kept so the manual sync button can re-push it. */
-    private var lastSnapshot: CalendarSnapshot? = null
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
+    /**
+     * Foreground change detection. The WorkManager trigger handles the background,
+     * but while the user is looking at this screen they should not have to wait for
+     * a scheduler window to see an edit they just made.
+     */
+    private val changeObserver = CalendarChangeObserver(app, viewModelScope) {
+        Log.i(CalendarReader.TAG, "resyncing after calendar change")
+        refresh()
+    }
+
+    override fun onCleared() {
+        changeObserver.stop()
+        super.onCleared()
+    }
+
     fun onPermissionResult(granted: Boolean) {
         _uiState.update { it.copy(permissionGranted = granted) }
-        if (granted) refresh()
+        if (granted) {
+            changeObserver.start()
+            refresh()
+        } else {
+            changeObserver.stop()
+        }
     }
 
     fun setCalendarEnabled(calendarId: Long, enabled: Boolean) =
@@ -86,103 +104,82 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.update { it.copy(enabledCalendarIds = next) }
         viewModelScope.launch {
             selectionStore.setEnabled(next)
-            requeryEvents(next)
-        }
-    }
-
-    fun refresh() {
-        if (!_uiState.value.permissionGranted) return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
-            try {
-                val calendars = reader.queryCalendars()
-
-                // A stored selection wins; otherwise fall back to the SYNC_EVENTS
-                // default. Ids that no longer exist are dropped so a removed account
-                // cannot leave the filter referencing dead calendars forever.
-                val stored = selectionStore.enabledCalendarIds.first()
-                val existing = calendars.map { it.id }.toSet()
-                val enabled = stored?.intersect(existing)
-                    ?: CalendarReader.defaultEnabledCalendarIds(calendars)
-
-                _uiState.update { it.copy(calendars = calendars, enabledCalendarIds = enabled) }
-
-                // Step-1 verification hook: `adb logcat -s WatchCalSync`.
-                reader.logDiagnostics(calendars, enabled)
-
-                requeryEvents(enabled, calendars)
-            } catch (e: SecurityException) {
-                Log.w(CalendarReader.TAG, "calendar read denied", e)
-                _uiState.update {
-                    it.copy(loading = false, permissionGranted = false, error = "권한이 거부되었습니다")
-                }
-            } catch (e: Exception) {
-                Log.e(CalendarReader.TAG, "calendar read failed", e)
-                _uiState.update {
-                    it.copy(loading = false, error = e.message ?: e::class.java.simpleName)
-                }
-            }
+            refresh()
         }
     }
 
     /** Manual "워치로 전송" — always writes, even if the agenda has not changed. */
     fun syncToWatchNow() {
-        val snapshot = lastSnapshot ?: return
-        viewModelScope.launch { pushToWatch(snapshot, force = true) }
+        viewModelScope.launch { runSync(force = true) }
     }
 
-    private suspend fun pushToWatch(snapshot: CalendarSnapshot, force: Boolean) {
-        _uiState.update { it.copy(syncing = true) }
-
-        val result = watchSync.push(
-            snapshot = snapshot,
-            lastPushedHash = selectionStore.lastPushedHash(),
-            force = force,
-        )
-
-        // Record the hash only on a real write, so a failed push retries next time.
-        if (result is PushResult.Pushed) {
-            selectionStore.setLastPushedHash(SnapshotCodec.contentHash(snapshot))
-        }
-
-        val nodes = watchSync.connectedNodeNames()
-        _uiState.update {
-            it.copy(
-                syncing = false,
-                connectedNodes = nodes,
-                syncStatus = when (result) {
-                    is PushResult.Pushed ->
-                        "전송됨 · ${result.eventCount}건 / ${result.bytes}B"
-                    is PushResult.Unchanged ->
-                        "변경 없음 · ${result.eventCount}건 (전송 생략)"
-                    is PushResult.Failed -> "전송 실패 · ${result.message}"
-                },
-            )
-        }
+    fun refresh() {
+        if (!_uiState.value.permissionGranted) return
+        viewModelScope.launch { runSync(force = false) }
     }
 
-    private suspend fun requeryEvents(
-        enabled: Set<Long>,
-        calendars: List<CalendarInfo> = _uiState.value.calendars,
-    ) {
+    private suspend fun runSync(force: Boolean) {
+        // The change trigger is one-time work and is consumed when it fires, so
+        // re-arm on any user-driven sync too. Otherwise it could sit disarmed until
+        // the next periodic run even while the app is being actively used.
+        SyncScheduler.rearmCalendarChangeTrigger(getApplication())
+
+        _uiState.update { it.copy(loading = true, syncing = true, error = null) }
         try {
-            _uiState.update { it.copy(loading = true) }
-            val snapshot = reader.snapshot(enabledCalendarIds = enabled, calendars = calendars)
-            lastSnapshot = snapshot
+            val calendars = reader.queryCalendars()
+            val stored = selectionStore.enabledCalendarIds()
+            val existing = calendars.map { it.id }.toSet()
+            val enabled = stored?.intersect(existing)
+                ?: CalendarReader.defaultEnabledCalendarIds(calendars)
+
+            // Step-1 verification hook: `adb logcat -s WatchCalSync`.
+            reader.logDiagnostics(calendars, enabled)
+
+            val snapshot = reader.snapshot(calendars = calendars, enabledCalendarIds = enabled)
             _uiState.update {
                 it.copy(
                     loading = false,
+                    calendars = calendars,
+                    enabledCalendarIds = enabled,
                     events = snapshot.events,
                     lastLoadedAtMillis = snapshot.generatedAtMillis,
-                    error = null,
                 )
             }
-            pushToWatch(snapshot, force = false)
-        } catch (e: Exception) {
-            Log.e(CalendarReader.TAG, "event query failed", e)
+
+            // Push through the shared syncer so the UI, the periodic worker and the
+            // change worker all apply the same skip rules and hash bookkeeping.
+            val outcome = syncer.sync(force = force)
+            val nodes = watchSync.connectedNodeNames()
             _uiState.update {
-                it.copy(loading = false, error = e.message ?: e::class.java.simpleName)
+                it.copy(
+                    syncing = false,
+                    connectedNodes = nodes,
+                    syncStatus = when (outcome) {
+                        is SyncOutcome.Pushed -> "전송됨 · ${outcome.eventCount}건 / ${outcome.bytes}B"
+                        is SyncOutcome.Unchanged -> "변경 없음 · ${outcome.eventCount}건 (전송 생략)"
+                        SyncOutcome.NoPermission -> "권한 없음"
+                        is SyncOutcome.Failed -> "전송 실패 · ${outcome.message}"
+                    },
+                )
+            }
+        } catch (e: SecurityException) {
+            Log.w(CalendarReader.TAG, "calendar read denied", e)
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    syncing = false,
+                    permissionGranted = false,
+                    error = "권한이 거부되었습니다",
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(CalendarReader.TAG, "sync failed", e)
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    syncing = false,
+                    error = e.message ?: e::class.java.simpleName,
+                )
             }
         }
     }
