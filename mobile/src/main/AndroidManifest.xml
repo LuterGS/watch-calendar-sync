@@ -11,6 +11,20 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.WatchCalSync">
 
+        <!-- Started by Wear when the watch asks for a fresh sync, even if the
+             phone app is not running. -->
+        <service
+            android:name=".sync.SyncRequestListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/calendar" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

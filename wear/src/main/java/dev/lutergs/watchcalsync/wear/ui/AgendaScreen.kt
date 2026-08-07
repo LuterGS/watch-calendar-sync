@@ -25,8 +25,10 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material3.CardDefaults
+import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
@@ -37,7 +39,11 @@ import androidx.wear.compose.material3.lazy.transformedHeight
 import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
 
 @Composable
-fun AgendaScreen(snapshot: CalendarSnapshot?) {
+fun AgendaScreen(
+    snapshot: CalendarSnapshot?,
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
+) {
     val listState = rememberTransformingLazyColumnState()
 
     // The signature Wear OS "expressive" motion: items shrink and fade as they
@@ -56,7 +62,11 @@ fun AgendaScreen(snapshot: CalendarSnapshot?) {
         ),
     ) { contentPadding ->
         if (snapshot == null) {
-            EmptyState("폰에서 동기화를 기다리는 중")
+            EmptyState(
+                message = "폰에서 동기화를 기다리는 중",
+                refreshing = refreshing,
+                onRefresh = onRefresh,
+            )
             return@ScreenScaffold
         }
 
@@ -65,7 +75,11 @@ fun AgendaScreen(snapshot: CalendarSnapshot?) {
             Log.i("WatchCalSync", "agenda: ${rows.size} rows from ${snapshot.events.size} events")
         }
         if (rows.isEmpty()) {
-            EmptyState("예정된 일정이 없습니다")
+            EmptyState(
+                message = "예정된 일정이 없습니다",
+                refreshing = refreshing,
+                onRefresh = onRefresh,
+            )
             return@ScreenScaffold
         }
 
@@ -104,6 +118,10 @@ fun AgendaScreen(snapshot: CalendarSnapshot?) {
                             transformation = SurfaceTransformation(transformSpec),
                         )
                 }
+            }
+
+            item(key = "refresh", contentType = "refresh") {
+                RefreshEdgeButton(refreshing = refreshing, onRefresh = onRefresh)
             }
         }
     }
@@ -207,10 +225,22 @@ private fun EventCard(
 }
 
 @Composable
-private fun EmptyState(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        contentAlignment = Alignment.Center,
+private fun RefreshEdgeButton(refreshing: Boolean, onRefresh: () -> Unit) {
+    EdgeButton(onClick = onRefresh, enabled = !refreshing) {
+        Text(if (refreshing) "요청 중…" else "새로고침")
+    }
+}
+
+@Composable
+private fun EmptyState(
+    message: String,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(
             text = message,
@@ -218,5 +248,9 @@ private fun EmptyState(message: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.padding(top = 12.dp))
+        Button(onClick = onRefresh, enabled = !refreshing) {
+            Text(if (refreshing) "요청 중…" else "새로고침")
+        }
     }
 }
