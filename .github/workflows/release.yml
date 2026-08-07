@@ -1,0 +1,133 @@
+name: Release APKs
+
+# 태그를 푸시하면 두 APK(:mobile, :wear)를 빌드해서 GitHub Release 를 만든다.
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# 태그 이름이 곧 versionName 이 된다 (v 접두사 제거). 태그와 build.gradle.kts 가
+# 어긋날 여지를 없애려고 Gradle 에 -P 로 주입한다.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # Release 생성에 필요
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        # compileSdk 37 은 러너 이미지에 없을 수 있다. 패키지 이름이
+        # "platforms;android-37.0" 인 점에 주의 (37 이 아니다).
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          NAME="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$NAME" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "태그는 vMAJOR.MINOR.PATCH 형식이어야 합니다 (받은 값: $GITHUB_REF_NAME)" >&2
+            exit 1
+          fi
+          # versionCode 는 단조 증가해야 한다. 1.2.3 -> 10203.
+          # minor/patch 는 99 를 넘지 않는다고 가정한다.
+          MAJOR="${NAME%%.*}"
+          REST="${NAME#*.}"
+          MINOR="${REST%%.*}"
+          PATCH="${REST#*.}"
+          CODE=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "versionName=$NAME versionCode=$CODE"
+
+      - name: Run unit tests
+        run: ./gradlew :wear:testDebugUnitTest --no-daemon
+
+      - name: Decode release keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            # 시크릿이 없으면 debug 키로 서명된다. 사이드로드는 되지만 릴리스마다
+            # 키가 달라져 기존 설치를 덮어쓸 수 없다.
+            echo "::warning::RELEASE_KEYSTORE_BASE64 가 없어 debug 키로 서명합니다. 릴리스 간 업그레이드 설치가 불가능합니다."
+            echo "signed=debug" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "signed=release" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed release APKs
+        env:
+          # 시크릿이 없을 때 빈 문자열이면 build.gradle.kts 의 null 체크가 참이 되어
+          # debug 키로 떨어진다. 그래서 경로 자체를 조건부로 비워둔다.
+          RELEASE_KEYSTORE_PATH: ${{ steps.keystore.outputs.signed == 'release' && format('{0}/release.keystore', runner.temp) || '' }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew :mobile:assembleRelease :wear:assembleRelease --no-daemon \
+            -PappVersionName='${{ steps.version.outputs.name }}' \
+            -PappVersionCode='${{ steps.version.outputs.code }}'
+
+      - name: Verify both APKs share one signing certificate
+        # 서명이 갈리면 Data Layer 가 폰/워치 앱을 짝짓지 못해 동기화가 조용히
+        # 죽는다. 릴리스에 올리기 전에 여기서 잡는다.
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          fingerprint() {
+            "$APKSIGNER" verify --print-certs "$1" | grep -m1 'SHA-256 digest' | awk '{print $NF}'
+          }
+          MOBILE=$(fingerprint mobile/build/outputs/apk/release/mobile-release.apk)
+          WEAR=$(fingerprint wear/build/outputs/apk/release/wear-release.apk)
+          echo "mobile: $MOBILE"
+          echo "wear:   $WEAR"
+          if [ -z "$MOBILE" ] || [ "$MOBILE" != "$WEAR" ]; then
+            echo "두 APK 의 서명이 다릅니다. Data Layer 페어링이 깨집니다." >&2
+            exit 1
+          fi
+
+      - name: Rename APKs with version
+        env:
+          V: ${{ steps.version.outputs.name }}
+        run: |
+          cp mobile/build/outputs/apk/release/mobile-release.apk "watchcalsync-phone-v${V}.apk"
+          cp wear/build/outputs/apk/release/wear-release.apk "watchcalsync-watch-v${V}.apk"
+
+      - name: Create GitHub Release
+        # 서드파티 액션은 커밋 SHA 로 고정 (서명 키 시크릿을 다루는 워크플로우)
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            watchcalsync-phone-v${{ steps.version.outputs.name }}.apk
+            watchcalsync-watch-v${{ steps.version.outputs.name }}.apk
+          generate_release_notes: true
+          body: |
+            폰에는 `watchcalsync-phone`, 워치에는 `watchcalsync-watch` 를 설치한다.
+            두 APK 는 applicationId 가 같으므로 **같은 기기에 동시에 설치할 수 없다**.
+
+            ```bash
+            adb -s <phone> install -r watchcalsync-phone-v${{ steps.version.outputs.name }}.apk
+            adb -s <watch> install -r watchcalsync-watch-v${{ steps.version.outputs.name }}.apk
+            # 워치는 첫 실행 후 baseline profile 이 심긴 뒤 AOT 컴파일해야 스크롤이 매끄럽다
+            adb -s <watch> shell cmd package compile -f -m speed-profile dev.lutergs.watchcalsync
+            ```

@@ -13,16 +13,41 @@ android {
         applicationId = "dev.lutergs.watchcalsync"
         minSdk = 30
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1"
+        // Overridable so a tagged CI build stamps the tag onto the APK instead of
+        // leaving whatever was last committed here.
+        versionCode = (findProperty("appVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("appVersionName") as String?) ?: "0.1"
+    }
+
+
+    // Release signing comes from the environment so CI can sign with a stable key.
+    // :mobile and :wear MUST end up with the same key — the Data Layer pairs the two
+    // apps on applicationId + signing certificate, so a mismatch silently stops the
+    // watch from ever receiving anything.
+    //
+    // With no keystore configured this falls back to the debug key, which keeps
+    // `./gradlew assembleRelease` working locally with zero setup. Those builds are
+    // fine to sideload but cannot upgrade a CI-signed install, and vice versa.
+    signingConfigs {
+        create("releaseEnv") {
+            val keystore = System.getenv("RELEASE_KEYSTORE_PATH")
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
-            // Personal sideload build: signed with the debug key so release APKs
-            // still pair with the watch. No Play Store distribution.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (System.getenv("RELEASE_KEYSTORE_PATH") != null) {
+                signingConfigs.getByName("releaseEnv")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
