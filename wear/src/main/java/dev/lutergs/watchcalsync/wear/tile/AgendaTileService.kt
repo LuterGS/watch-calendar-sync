@@ -1,7 +1,9 @@
 package dev.lutergs.watchcalsync.wear.tile
 
 import android.content.Context
+import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters
+import androidx.wear.protolayout.ModifiersBuilders.Clickable
 import androidx.wear.protolayout.LayoutElementBuilders.Column
 import androidx.wear.protolayout.LayoutElementBuilders.LayoutElement
 import androidx.wear.protolayout.LayoutElementBuilders.Row
@@ -27,6 +29,7 @@ import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.ListenableFuture
 import dev.lutergs.watchcalsync.wear.data.SnapshotStore
+import dev.lutergs.watchcalsync.wear.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,6 +65,21 @@ class AgendaTileService : TileService() {
             context = applicationContext,
             device = requestParams.deviceConfiguration,
             agenda = agenda,
+            // Tapping the tile opens the full agenda — the tile is the glance, the
+            // app screen is the detail.
+            onClick = Clickable.Builder()
+                .setId("open_agenda")
+                .setOnClick(
+                    ActionBuilders.LaunchAction.Builder()
+                        .setAndroidActivity(
+                            ActionBuilders.AndroidActivity.Builder()
+                                .setPackageName(packageName)
+                                .setClassName(MainActivity::class.java.name)
+                                .build()
+                        )
+                        .build()
+                )
+                .build(),
         )
 
         TileBuilders.Tile.Builder()
@@ -96,6 +114,7 @@ private fun tileLayout(
     context: Context,
     device: DeviceParameters,
     agenda: TileAgenda,
+    onClick: Clickable,
 ): LayoutElement = materialScope(context, device) {
     primaryLayout(
         titleSlot = {
@@ -108,10 +127,11 @@ private fun tileLayout(
         mainSlot = {
             when {
                 !agenda.hasSnapshot -> centeredMessage("폰 동기화 대기 중")
-                agenda.entries.isEmpty() -> centeredMessage("예정된 일정 없음")
+                agenda.days.isEmpty() -> centeredMessage("예정된 일정 없음")
                 else -> agendaColumn(agenda)
             }
         },
+        onClick = onClick,
     )
 }
 
@@ -126,18 +146,18 @@ private fun MaterialScope.agendaColumn(agenda: TileAgenda): LayoutElement {
     val column = Column.Builder()
         .setWidth(androidx.wear.protolayout.DimensionBuilders.expand())
 
-    agenda.entries.forEachIndexed { index, entry ->
+    agenda.days.forEachIndexed { index, day ->
         if (index > 0) {
-            column.addContent(Spacer.Builder().setHeight(dp(6f)).build())
+            column.addContent(Spacer.Builder().setHeight(dp(8f)).build())
         }
-        column.addContent(entryRow(entry))
+        column.addContent(dayRow(day))
     }
 
-    if (agenda.overflowCount > 0) {
+    if (agenda.overflowDays > 0) {
         column.addContent(Spacer.Builder().setHeight(dp(4f)).build())
         column.addContent(
             text(
-                LayoutString("+${agenda.overflowCount}개 더"),
+                LayoutString("+${agenda.overflowDays}일 더"),
                 typography = Typography.BODY_EXTRA_SMALL,
                 color = colorScheme.onSurfaceVariant,
             )
@@ -146,10 +166,20 @@ private fun MaterialScope.agendaColumn(agenda: TileAgenda): LayoutElement {
     return column.build()
 }
 
-/** A colour chip plus "언제 · 무엇", matching the app screen's reading order. */
-private fun MaterialScope.entryRow(entry: TileEntry): LayoutElement {
-    val dotColor = if (entry.colorArgb == 0) colorScheme.primaryDim
-    else LayoutColor(entry.colorArgb)
+/**
+ * One day: "오늘 · 14:00" over the first event's title, with "+N" when that day
+ * holds more.
+ */
+private fun MaterialScope.dayRow(day: TileDay): LayoutElement {
+    val dotColor = if (day.colorArgb == 0) colorScheme.primaryDim
+    else LayoutColor(day.colorArgb)
+
+    val heading = buildString {
+        append(day.dayLabel)
+        append(" · ")
+        append(day.timeLabel)
+        if (day.moreCount > 0) append("  +${day.moreCount}")
+    }
 
     return Row.Builder()
         .setWidth(androidx.wear.protolayout.DimensionBuilders.expand())
@@ -173,14 +203,14 @@ private fun MaterialScope.entryRow(entry: TileEntry): LayoutElement {
                 .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_START)
                 .addContent(
                     text(
-                        LayoutString(entry.whenLabel),
+                        LayoutString(heading),
                         typography = Typography.LABEL_SMALL,
                         color = colorScheme.primaryDim,
                     )
                 )
                 .addContent(
                     text(
-                        LayoutString(entry.title),
+                        LayoutString(day.headline),
                         typography = Typography.BODY_SMALL,
                         color = colorScheme.onSurface,
                         maxLines = 1,

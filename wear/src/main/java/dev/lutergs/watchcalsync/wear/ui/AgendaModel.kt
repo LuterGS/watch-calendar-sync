@@ -30,6 +30,17 @@ sealed interface AgendaRow {
         override val contentType: String get() = "header"
     }
 
+    /** Every all-day event of one day, collapsed into a single card. */
+    @Immutable
+    data class AllDay(
+        private val dayKey: String,
+        val titles: String,
+        val dotColors: List<Color>,
+    ) : AgendaRow {
+        override val key: String get() = "allday-$dayKey"
+        override val contentType: String get() = "allday"
+    }
+
     @Immutable
     data class Event(
         private val occurrenceKey: String,
@@ -65,22 +76,40 @@ object AgendaBuilder {
             .filter { it.endMillis > nowMillis }
             .sortedWith(compareBy({ it.startMillis }, { it.title }))
 
-        val rows = ArrayList<AgendaRow>(upcoming.size + 8)
-        var lastDate: LocalDate? = null
+        val byDay = upcoming.groupBy { dateOf(it, zone) }
 
-        for (event in upcoming) {
-            val date = dateOf(event, zone)
-            if (date != lastDate) {
-                rows += AgendaRow.DayHeader(dayFormatter.format(date))
-                lastDate = date
+        val rows = ArrayList<AgendaRow>(upcoming.size + 8)
+        for ((date, events) in byDay.entries.sortedBy { it.key }) {
+            rows += AgendaRow.DayHeader(dayFormatter.format(date))
+
+            val (allDay, timed) = events.partition { it.allDay }
+
+            // All-day entries collapse into one card per day regardless of which
+            // calendar they came from. The same holiday is typically present in the
+            // 개인, 회사 and Samsung calendars at once, so listing them separately
+            // pushed the day's real meetings off the screen.
+            if (allDay.isNotEmpty()) {
+                rows += AgendaRow.AllDay(
+                    dayKey = date.toString(),
+                    titles = allDay.map { it.title.trim() }
+                        .distinctBy { it.lowercase() }
+                        .joinToString(" · "),
+                    dotColors = allDay
+                        .map { if (it.color == 0) Color.Gray else Color(it.color) }
+                        .distinct()
+                        .take(MAX_ALL_DAY_DOTS),
+                )
             }
-            rows += AgendaRow.Event(
-                occurrenceKey = event.occurrenceKey,
-                title = event.title,
-                timeLabel = timeLabel(event, zone),
-                location = displayLocation(event.location),
-                dotColor = if (event.color == 0) Color.Gray else Color(event.color),
-            )
+
+            timed.forEach { event ->
+                rows += AgendaRow.Event(
+                    occurrenceKey = event.occurrenceKey,
+                    title = event.title,
+                    timeLabel = timeLabel(event, zone),
+                    location = displayLocation(event.location),
+                    dotColor = if (event.color == 0) Color.Gray else Color(event.color),
+                )
+            }
         }
         return rows
     }
@@ -113,9 +142,11 @@ object AgendaBuilder {
     }
 
     private fun timeLabel(event: CalendarEvent, zone: ZoneId): String {
-        if (event.allDay) return "종일"
         val fmt = timeFormatter.withZone(zone)
         return "${fmt.format(Instant.ofEpochMilli(event.startMillis))}" +
             "–${fmt.format(Instant.ofEpochMilli(event.endMillis))}"
     }
+
+    /** Enough dots to signal "several calendars" without turning into a rash. */
+    private const val MAX_ALL_DAY_DOTS = 3
 }

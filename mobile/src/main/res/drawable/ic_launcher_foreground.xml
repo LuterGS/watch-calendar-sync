@@ -1,14 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Simple calendar glyph. 108dp canvas; artwork kept inside the 72dp safe zone. -->
+<!--
+  Calendar card with a header band and a grid of event chips, one accented.
+
+  108dp canvas. The safe zone is not the inner 72dp *square* but the circle
+  inscribed in it (centre 54,54, radius ~36) — launchers mask to circles and
+  squircles, and an earlier version sized to the square had its card corners
+  sliced off. The card is 52x46 so its corners sit ~35 from centre, inside the
+  circle.
+
+  The band is a lighter green than @color/ic_launcher_background on purpose:
+  painting it the same green made the top of the card vanish into the backdrop.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Hanger pills, drawn behind the card -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M36,26h4v8h-4zM68,26h4v8h-4zM30,32h48a6,6 0 0 1 6,6v40a6,6 0 0 1 -6,6h-48a6,6 0 0 1 -6,-6v-40a6,6 0 0 1 6,-6zM28,46h52v32a2,2 0 0 1 -2,2h-48a2,2 0 0 1 -2,-2z" />
+        android:pathData="M39,30.25a3.25,3.25 0 0 1 6.5,0v7.5a3.25,3.25 0 0 1 -6.5,0zM62.5,30.25a3.25,3.25 0 0 1 6.5,0v7.5a3.25,3.25 0 0 1 -6.5,0z" />
+
+    <!-- Card body -->
     <path
-        android:fillColor="#1B6C4F"
-        android:pathData="M36,54h10v8h-10zM52,54h10v8h-10zM68,54h10v8h-10zM36,66h10v8h-10zM52,66h10v8h-10z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,33h34a9,9 0 0 1 9,9v28a9,9 0 0 1 -9,9h-34a9,9 0 0 1 -9,-9v-28a9,9 0 0 1 9,-9z" />
+
+    <!-- Header band -->
+    <path
+        android:fillColor="#2E9E73"
+        android:pathData="M28,42a9,9 0 0 1 9,-9h34a9,9 0 0 1 9,9v5h-52z" />
+
+    <!-- Event chips: 3 x 2 grid -->
+    <path
+        android:fillColor="#0E4733"
+        android:pathData="M35,53h9v8h-9zM49.5,53h9v8h-9zM64,53h9v8h-9zM35,65h9v8h-9zM49.5,65h9v8h-9z" />
+
+    <!-- Accent chip: the entry mirrored to the watch -->
+    <path
+        android:fillColor="#F5A623"
+        android:pathData="M64,65h9v8h-9z" />
 </vector>

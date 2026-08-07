@@ -8,36 +8,45 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
-/** One line on the tile. Pre-formatted so the layout builder does no date maths. */
-data class TileEntry(
-    val whenLabel: String,
-    val title: String,
+/**
+ * One day on the tile.
+ *
+ * The tile is day-oriented rather than event-oriented on purpose: listing raw
+ * events meant a single busy day filled the whole tile, so a "next 7 days" glance
+ * only ever showed today. A row per day guarantees the week is actually visible.
+ */
+data class TileDay(
+    val dayLabel: String,
+    /** Earliest event of the day — what the glance is usually about. */
+    val headline: String,
+    val timeLabel: String,
+    /** Remaining events that day, for the "+N" suffix. */
+    val moreCount: Int,
     val colorArgb: Int,
 )
 
 data class TileAgenda(
-    val entries: List<TileEntry>,
-    /** Events inside the window that did not fit on the tile. */
-    val overflowCount: Int,
+    val days: List<TileDay>,
+    /** Days with events inside the window that did not fit on the tile. */
+    val overflowDays: Int,
     val hasSnapshot: Boolean,
 )
 
 object TileAgendaBuilder {
 
-    /** A tile is one small screen — more than this is unreadable, not more useful. */
-    const val MAX_ENTRIES = 4
+    /** How far ahead the glance looks. */
+    const val HORIZON_DAYS = 7L
 
-    private val dayFormatter = DateTimeFormatter.ofPattern("M/d", Locale.KOREA)
+    /** A tile is one small screen; beyond this rows stop being readable. */
+    const val MAX_DAYS = 4
+
+    private val dayFormatter = DateTimeFormatter.ofPattern("M/d (E)", Locale.KOREA)
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.KOREA)
 
     /**
-     * Events starting within the next 7 days, in order.
-     *
-     * The window is clamped to 7 days regardless of how far the phone's snapshot
-     * reaches, because the tile is a "what's coming up" glance rather than a full
-     * agenda — that is what the app screen is for.
+     * Groups upcoming events into one row per day, covering [HORIZON_DAYS] days.
+     * Days with no events are skipped rather than rendered empty.
      */
     fun build(
         snapshot: CalendarSnapshot?,
@@ -46,49 +55,49 @@ object TileAgendaBuilder {
     ): TileAgenda {
         if (snapshot == null) return TileAgenda(emptyList(), 0, hasSnapshot = false)
 
-        val horizon = nowMillis + TimeUnit.DAYS.toMillis(7)
-        val upcoming = snapshot.events
-            .filter { it.endMillis > nowMillis && it.startMillis < horizon }
-            .sortedWith(compareBy({ it.startMillis }, { it.title }))
-
         val today = LocalDate.now(zone)
-        val entries = upcoming.take(MAX_ENTRIES).map { event ->
-            TileEntry(
-                whenLabel = whenLabel(event, today, zone),
-                title = event.title,
-                colorArgb = event.color,
+        val lastDay = today.plusDays(HORIZON_DAYS)
+
+        val byDay = snapshot.events
+            .filter { it.endMillis > nowMillis }
+            .map { dateOf(it, zone) to it }
+            .filter { (date, _) -> !date.isBefore(today) && !date.isAfter(lastDay) }
+            .groupBy({ it.first }, { it.second })
+            .toSortedMap()
+
+        val days = byDay.entries.take(MAX_DAYS).map { (date, events) ->
+            val sorted = events.sortedWith(compareBy({ it.startMillis }, { it.title }))
+            val first = sorted.first()
+            TileDay(
+                dayLabel = when (date) {
+                    today -> "오늘"
+                    today.plusDays(1) -> "내일"
+                    else -> dayFormatter.format(date)
+                },
+                headline = first.title,
+                timeLabel = if (first.allDay) {
+                    "종일"
+                } else {
+                    timeFormatter.format(Instant.ofEpochMilli(first.startMillis).atZone(zone))
+                },
+                moreCount = sorted.size - 1,
+                colorArgb = first.color,
             )
         }
 
         return TileAgenda(
-            entries = entries,
-            overflowCount = (upcoming.size - entries.size).coerceAtLeast(0),
+            days = days,
+            overflowDays = (byDay.size - days.size).coerceAtLeast(0),
             hasSnapshot = true,
         )
     }
 
     /**
-     * "오늘 14:00", "내일 종일", "8/12 09:30" — the date is dropped for today and
-     * tomorrow because those are the ones a glance is usually about.
+     * All-day events sit on UTC midnight boundaries rather than local time, so
+     * resolving them in the local zone shifts them onto the wrong day.
      */
-    private fun whenLabel(event: CalendarEvent, today: LocalDate, zone: ZoneId): String {
-        // All-day events sit on UTC midnight boundaries, so they must be resolved in
-        // UTC or they land on the wrong day.
-        val date = Instant.ofEpochMilli(event.startMillis)
+    private fun dateOf(event: CalendarEvent, zone: ZoneId): LocalDate =
+        Instant.ofEpochMilli(event.startMillis)
             .atZone(if (event.allDay) ZoneOffset.UTC else zone)
             .toLocalDate()
-
-        val dayPart = when (date) {
-            today -> "오늘"
-            today.plusDays(1) -> "내일"
-            else -> dayFormatter.format(date)
-        }
-
-        val timePart = if (event.allDay) {
-            "종일"
-        } else {
-            timeFormatter.format(Instant.ofEpochMilli(event.startMillis).atZone(zone))
-        }
-        return "$dayPart $timePart"
-    }
 }

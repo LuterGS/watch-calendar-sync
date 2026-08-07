@@ -90,6 +90,13 @@ fun AgendaScreen(snapshot: CalendarSnapshot?) {
                             Text(row.label)
                         }
 
+                    is AgendaRow.AllDay ->
+                        AllDayCard(
+                            row = row,
+                            modifier = Modifier.transformedHeight(this, transformSpec),
+                            transformation = SurfaceTransformation(transformSpec),
+                        )
+
                     is AgendaRow.Event ->
                         EventCard(
                             row = row,
@@ -99,6 +106,51 @@ fun AgendaScreen(snapshot: CalendarSnapshot?) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AllDayCard(
+    row: AgendaRow.AllDay,
+    modifier: Modifier,
+    transformation: SurfaceTransformation,
+) {
+    Card(
+        onClick = {},
+        modifier = modifier.fillMaxWidth(),
+        transformation = transformation,
+        colors = CardDefaults.cardColors(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // One dot per contributing calendar, so a merged row still shows it
+            // came from more than one place.
+            row.dotColors.forEach { color ->
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(color),
+                )
+                Spacer(Modifier.width(3.dp))
+            }
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = "종일",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primaryDim,
+                maxLines = 1,
+            )
+        }
+
+        Spacer(Modifier.padding(top = 2.dp))
+
+        Text(
+            text = row.titles,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

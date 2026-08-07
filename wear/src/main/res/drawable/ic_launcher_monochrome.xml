@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon layer. The system tints this to a single colour, so it has to read
+  as a silhouette: one filled card with the header rule and the event chips
+  punched straight through it (evenOdd). Geometry matches the colour foreground.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M39,30.25a3.25,3.25 0 0 1 6.5,0v2.75h17v-2.75a3.25,3.25 0 0 1 6.5,0v2.75h2a9,9 0 0 1 9,9v28a9,9 0 0 1 -9,9h-34a9,9 0 0 1 -9,-9v-28a9,9 0 0 1 9,-9h2zM28,46h52v3h-52zM35,54h9v8h-9zM49.5,54h9v8h-9zM64,54h9v8h-9zM35,66h9v8h-9zM49.5,66h9v8h-9zM64,66h9v8h-9z" />
+</vector>

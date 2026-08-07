@@ -87,4 +87,6 @@ dependencies {
     implementation(libs.androidx.wear.tiles.tooling.preview)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.junit)
 }
