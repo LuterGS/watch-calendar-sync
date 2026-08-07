@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onCalendarEnabledChange = vm::setCalendarEnabled,
                         onCalendarsEnabledChange = vm::setCalendarsEnabled,
+                        onSyncToWatch = vm::syncToWatchNow,
                     )
                 }
             }

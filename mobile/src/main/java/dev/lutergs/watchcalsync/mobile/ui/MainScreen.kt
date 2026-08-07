@@ -54,6 +54,7 @@ fun MainScreen(
     onRequestPermission: () -> Unit,
     onCalendarEnabledChange: (Long, Boolean) -> Unit,
     onCalendarsEnabledChange: (Set<Long>, Boolean) -> Unit,
+    onSyncToWatch: () -> Unit,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -98,7 +99,7 @@ fun MainScreen(
 
             Box(Modifier.padding(horizontal = 16.dp)) {
                 when (selectedTab) {
-                    0 -> AgendaTab(state, onRefresh)
+                    0 -> AgendaTab(state, onRefresh, onSyncToWatch)
                     else -> CalendarFilterTab(
                         state = state,
                         onCalendarEnabledChange = onCalendarEnabledChange,
@@ -111,7 +112,11 @@ fun MainScreen(
 }
 
 @Composable
-private fun AgendaTab(state: MainUiState, onRefresh: () -> Unit) {
+private fun AgendaTab(
+    state: MainUiState,
+    onRefresh: () -> Unit,
+    onSyncToWatch: () -> Unit,
+) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
@@ -123,9 +128,18 @@ private fun AgendaTab(state: MainUiState, onRefresh: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("어제 ~ +14일", style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = onRefresh, enabled = !state.loading) { Text("새로고침") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onRefresh, enabled = !state.loading) {
+                        Text("새로고침")
+                    }
+                    Button(onClick = onSyncToWatch, enabled = !state.syncing) {
+                        Text("워치로 전송")
+                    }
+                }
             }
         }
+
+        item { WatchSyncStatus(state) }
 
         items(state.events, key = { it.occurrenceKey }) { EventRow(it) }
 
@@ -231,6 +245,28 @@ private fun CalendarToggleRow(
                 // synced=false calendars hold no fresh rows, so flag them: turning
                 // one on will not produce events.
                 text = if (calendar.synced) "$eventCount 건" else "$eventCount 건 · 동기화 꺼짐",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WatchSyncStatus(state: MainUiState) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                text = state.syncStatus ?: "아직 전송하지 않음",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                // Zero nodes is normal when the watch is out of Bluetooth range; the
+                // DataItem still syncs once it reconnects.
+                text = if (state.connectedNodes.isEmpty()) {
+                    "연결된 워치 없음 (재연결되면 자동 반영)"
+                } else {
+                    "연결됨: ${state.connectedNodes.joinToString()}"
+                },
                 style = MaterialTheme.typography.labelSmall,
             )
         }

@@ -16,6 +16,20 @@
             android:name="com.google.android.wearable.standalone"
             android:value="true" />
 
+        <!-- Started by Wear on delivery even when the app is closed, so the cache
+             is already populated when the user opens the agenda. -->
+        <service
+            android:name=".sync.CalendarDataListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/calendar" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

@@ -6,8 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.lutergs.watchcalsync.mobile.calendar.CalendarReader
 import dev.lutergs.watchcalsync.mobile.calendar.CalendarSelectionStore
+import dev.lutergs.watchcalsync.mobile.sync.PushResult
+import dev.lutergs.watchcalsync.mobile.sync.WatchSyncClient
 import dev.lutergs.watchcalsync.shared.model.CalendarEvent
 import dev.lutergs.watchcalsync.shared.model.CalendarInfo
+import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
+import dev.lutergs.watchcalsync.shared.sync.SnapshotCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +28,10 @@ data class MainUiState(
     val events: List<CalendarEvent> = emptyList(),
     val lastLoadedAtMillis: Long? = null,
     val error: String? = null,
+    /** Human-readable outcome of the most recent watch push. */
+    val syncStatus: String? = null,
+    val connectedNodes: List<String> = emptyList(),
+    val syncing: Boolean = false,
 ) {
     /** Calendars grouped by owning account, for the filter UI. */
     val calendarsByAccount: Map<String, List<CalendarInfo>>
@@ -37,6 +45,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val reader = CalendarReader(app)
     private val selectionStore = CalendarSelectionStore(app)
+    private val watchSync = WatchSyncClient(app)
+
+    /** Most recent snapshot, kept so the manual sync button can re-push it. */
+    private var lastSnapshot: CalendarSnapshot? = null
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -103,6 +115,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Manual "워치로 전송" — always writes, even if the agenda has not changed. */
+    fun syncToWatchNow() {
+        val snapshot = lastSnapshot ?: return
+        viewModelScope.launch { pushToWatch(snapshot, force = true) }
+    }
+
+    private suspend fun pushToWatch(snapshot: CalendarSnapshot, force: Boolean) {
+        _uiState.update { it.copy(syncing = true) }
+
+        val result = watchSync.push(
+            snapshot = snapshot,
+            lastPushedHash = selectionStore.lastPushedHash(),
+            force = force,
+        )
+
+        // Record the hash only on a real write, so a failed push retries next time.
+        if (result is PushResult.Pushed) {
+            selectionStore.setLastPushedHash(SnapshotCodec.contentHash(snapshot))
+        }
+
+        val nodes = watchSync.connectedNodeNames()
+        _uiState.update {
+            it.copy(
+                syncing = false,
+                connectedNodes = nodes,
+                syncStatus = when (result) {
+                    is PushResult.Pushed ->
+                        "전송됨 · ${result.eventCount}건 / ${result.bytes}B"
+                    is PushResult.Unchanged ->
+                        "변경 없음 · ${result.eventCount}건 (전송 생략)"
+                    is PushResult.Failed -> "전송 실패 · ${result.message}"
+                },
+            )
+        }
+    }
+
     private suspend fun requeryEvents(
         enabled: Set<Long>,
         calendars: List<CalendarInfo> = _uiState.value.calendars,
@@ -110,6 +158,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         try {
             _uiState.update { it.copy(loading = true) }
             val snapshot = reader.snapshot(enabledCalendarIds = enabled, calendars = calendars)
+            lastSnapshot = snapshot
             _uiState.update {
                 it.copy(
                     loading = false,
@@ -118,6 +167,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     error = null,
                 )
             }
+            pushToWatch(snapshot, force = false)
         } catch (e: Exception) {
             Log.e(CalendarReader.TAG, "event query failed", e)
             _uiState.update {

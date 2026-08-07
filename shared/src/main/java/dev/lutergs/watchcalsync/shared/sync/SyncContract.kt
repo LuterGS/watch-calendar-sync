@@ -13,8 +13,19 @@ object SyncContract {
     /** MessageClient path the watch uses to ask the phone for a fresh sync. */
     const val PATH_REQUEST_SYNC = "/calendar/request-sync"
 
-    /** DataMap key holding the UTF-8 JSON bytes of the snapshot. */
-    const val KEY_SNAPSHOT_JSON = "snapshot_json"
+    /**
+     * DataMap key holding the snapshot as **gzipped** UTF-8 JSON.
+     *
+     * A DataItem is capped at 100 KB. Uncompressed this payload is a few hundred
+     * bytes per event, so a busy two-week window on a work calendar can approach
+     * that ceiling; calendar JSON is highly repetitive and gzips roughly 5-10x,
+     * which keeps a comfortable margin. Compression is unconditional — there is no
+     * "maybe compressed" case for the reader to handle.
+     */
+    const val KEY_SNAPSHOT_GZIP = "snapshot_json_gzip"
+
+    /** Mirrors CalendarSnapshot.generatedAtMillis so the watch can show staleness. */
+    const val KEY_GENERATED_AT = "generated_at"
 
     /**
      * Bumped whenever the snapshot payload changes shape, so a stale watch build
