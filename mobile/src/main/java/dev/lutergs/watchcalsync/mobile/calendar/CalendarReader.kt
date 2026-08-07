@@ -79,7 +79,10 @@ class CalendarReader(private val context: Context) {
         windowStartMillis: Long,
         windowEndMillis: Long,
         calendars: List<CalendarInfo>,
+        enabledCalendarIds: Set<Long> = defaultEnabledCalendarIds(calendars),
     ): List<CalendarEvent> = withContext(Dispatchers.IO) {
+        if (enabledCalendarIds.isEmpty()) return@withContext emptyList()
+
         val byId = calendars.associateBy { it.id }
 
         // For Instances the time window is encoded in the URI path, not the selection.
@@ -103,8 +106,15 @@ class CalendarReader(private val context: Context) {
             CalendarContract.Instances.SELF_ATTENDEE_STATUS,
         )
 
-        // Only calendars the user actually has checked in the Calendar app.
-        val selection = "${CalendarContract.Instances.VISIBLE} = 1"
+        // Restrict by calendar id rather than by Instances.VISIBLE.
+        //
+        // VISIBLE mirrors the checkbox in whichever Calendar app owns the account,
+        // and on this phone every 회사(Google Workspace) calendar is unchecked even
+        // though the provider is actively syncing 1000+ events into it. Filtering on
+        // VISIBLE therefore drops the entire work account — the exact thing this app
+        // exists to surface. Calendar choice belongs to *this* app instead.
+        val idList = enabledCalendarIds.joinToString(",")
+        val selection = "${CalendarContract.Instances.CALENDAR_ID} IN ($idList)"
 
         context.contentResolver.query(
             uri,
@@ -174,11 +184,14 @@ class CalendarReader(private val context: Context) {
      */
     suspend fun logDiagnostics() {
         val calendars = queryCalendars()
+        val enabled = defaultEnabledCalendarIds(calendars)
+
         Log.i(TAG, "===== Calendars (${calendars.size}) =====")
         calendars.forEach {
             Log.i(
                 TAG,
-                "id=${it.id} account=${it.accountName} (${it.accountType}) " +
+                "${if (it.id in enabled) "[ON ]" else "[off]"} id=${it.id} " +
+                    "account=${it.accountName} (${it.accountType}) " +
                     "name='${it.displayName}' color=#${Integer.toHexString(it.color)} " +
                     "visible=${it.visible} synced=${it.synced}",
             )
@@ -186,7 +199,8 @@ class CalendarReader(private val context: Context) {
         Log.i(TAG, "distinct accounts = ${calendars.map { it.accountName }.distinct()}")
 
         val snap = snapshot()
-        Log.i(TAG, "===== Events (${snap.events.size}) in window =====")
+        val byAccount = snap.events.groupingBy { it.accountName }.eachCount()
+        Log.i(TAG, "===== Events (${snap.events.size}) in window, per account: $byAccount =====")
         snap.events.forEach {
             Log.i(
                 TAG,
@@ -208,6 +222,18 @@ class CalendarReader(private val context: Context) {
 
     companion object {
         const val TAG = "WatchCalSync"
+
+        /**
+         * Which calendars to read when the user has not chosen explicitly.
+         *
+         * Keyed on SYNC_EVENTS, not VISIBLE: SYNC_EVENTS means the provider is
+         * actually pulling data into the calendar, whereas VISIBLE only reflects a
+         * checkbox in the phone's Calendar UI and is false for every 회사 calendar
+         * on this device. Unsynced calendars are skipped because they hold no fresh
+         * rows — including them would only add dead entries.
+         */
+        fun defaultEnabledCalendarIds(calendars: List<CalendarInfo>): Set<Long> =
+            calendars.filter { it.synced }.map { it.id }.toSet()
 
         /** Yesterday onward — enough to still show an event that started before now. */
         const val DEFAULT_PAST_DAYS = 1L
