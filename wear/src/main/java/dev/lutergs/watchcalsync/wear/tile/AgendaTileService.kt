@@ -29,6 +29,8 @@ import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.ListenableFuture
 import dev.lutergs.watchcalsync.wear.data.SnapshotStore
+import androidx.compose.ui.graphics.toArgb
+import dev.lutergs.watchcalsync.wear.ui.AgendaRow
 import dev.lutergs.watchcalsync.wear.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -127,7 +129,7 @@ private fun tileLayout(
         mainSlot = {
             when {
                 !agenda.hasSnapshot -> centeredMessage("폰 동기화 대기 중")
-                agenda.days.isEmpty() -> centeredMessage("예정된 일정 없음")
+                agenda.rows.isEmpty() -> centeredMessage("예정된 일정 없음")
                 else -> agendaColumn(agenda)
             }
         },
@@ -145,19 +147,38 @@ private fun MaterialScope.centeredMessage(message: String): LayoutElement =
 private fun MaterialScope.agendaColumn(agenda: TileAgenda): LayoutElement {
     val column = Column.Builder()
         .setWidth(androidx.wear.protolayout.DimensionBuilders.expand())
+        .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_START)
 
-    agenda.days.forEachIndexed { index, day ->
+    agenda.rows.forEachIndexed { index, row ->
         if (index > 0) {
-            column.addContent(Spacer.Builder().setHeight(dp(8f)).build())
+            column.addContent(
+                Spacer.Builder()
+                    .setHeight(dp(if (row is AgendaRow.DayHeader) 5f else 2f))
+                    .build()
+            )
         }
-        column.addContent(dayRow(day))
+        column.addContent(
+            when (row) {
+                is AgendaRow.DayHeader -> headerRow(row)
+                is AgendaRow.AllDay -> entryRow(
+                    dotArgb = row.dotColors.firstOrNull()?.toArgb() ?: 0,
+                    lead = "종일",
+                    title = row.titles,
+                )
+                is AgendaRow.Event -> entryRow(
+                    dotArgb = row.dotColor.toArgb(),
+                    lead = row.timeLabel,
+                    title = row.title,
+                )
+            }
+        )
     }
 
-    if (agenda.overflowDays > 0) {
-        column.addContent(Spacer.Builder().setHeight(dp(4f)).build())
+    if (agenda.hiddenEvents > 0) {
+        column.addContent(Spacer.Builder().setHeight(dp(3f)).build())
         column.addContent(
             text(
-                LayoutString("+${agenda.overflowDays}일 더"),
+                LayoutString("+${agenda.hiddenEvents}개 더"),
                 typography = Typography.BODY_EXTRA_SMALL,
                 color = colorScheme.onSurfaceVariant,
             )
@@ -166,20 +187,26 @@ private fun MaterialScope.agendaColumn(agenda: TileAgenda): LayoutElement {
     return column.build()
 }
 
-/**
- * One day: "오늘 · 14:00" over the first event's title, with "+N" when that day
- * holds more.
- */
-private fun MaterialScope.dayRow(day: TileDay): LayoutElement {
-    val dotColor = if (day.colorArgb == 0) colorScheme.primaryDim
-    else LayoutColor(day.colorArgb)
+private fun MaterialScope.headerRow(row: AgendaRow.DayHeader): LayoutElement =
+    text(
+        LayoutString(row.label),
+        typography = Typography.LABEL_SMALL,
+        color = colorScheme.onSurfaceVariant,
+    )
 
-    val heading = buildString {
-        append(day.dayLabel)
-        append(" · ")
-        append(day.timeLabel)
-        if (day.moreCount > 0) append("  +${day.moreCount}")
-    }
+/**
+ * One agenda entry on a single line: colour dot, then "시각  제목".
+ *
+ * The app screen gives each event two lines, but a tile cannot scroll, so
+ * stacking them here would halve how much of the week is visible. The dot, the
+ * ordering and the day grouping still match the app.
+ */
+private fun MaterialScope.entryRow(
+    dotArgb: Int,
+    lead: String,
+    title: String,
+): LayoutElement {
+    val dotColor = if (dotArgb == 0) colorScheme.primaryDim else LayoutColor(dotArgb)
 
     return Row.Builder()
         .setWidth(androidx.wear.protolayout.DimensionBuilders.expand())
@@ -196,27 +223,22 @@ private fun MaterialScope.dayRow(day: TileDay): LayoutElement {
                 )
                 .build()
         )
-        .addContent(Spacer.Builder().setWidth(dp(6f)).build())
+        .addContent(Spacer.Builder().setWidth(dp(5f)).build())
         .addContent(
-            Column.Builder()
-                .setWidth(androidx.wear.protolayout.DimensionBuilders.expand())
-                .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_START)
-                .addContent(
-                    text(
-                        LayoutString(heading),
-                        typography = Typography.LABEL_SMALL,
-                        color = colorScheme.primaryDim,
-                    )
-                )
-                .addContent(
-                    text(
-                        LayoutString(day.headline),
-                        typography = Typography.BODY_SMALL,
-                        color = colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                )
-                .build()
+            text(
+                LayoutString(lead),
+                typography = Typography.LABEL_SMALL,
+                color = colorScheme.primaryDim,
+            )
+        )
+        .addContent(Spacer.Builder().setWidth(dp(5f)).build())
+        .addContent(
+            text(
+                LayoutString(title),
+                typography = Typography.BODY_SMALL,
+                color = colorScheme.onSurface,
+                maxLines = 1,
+            )
         )
         .build()
 }

@@ -71,9 +71,14 @@ object AgendaBuilder {
         snapshot: CalendarSnapshot,
         nowMillis: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
+        /** Exclusive upper bound on event start. Null shows the whole snapshot. */
+        horizonMillis: Long? = null,
     ): List<AgendaRow> {
         val upcoming = snapshot.events
-            .filter { it.endMillis > nowMillis }
+            .filter {
+                it.endMillis > nowMillis &&
+                    (horizonMillis == null || it.startMillis < horizonMillis)
+            }
             .sortedWith(compareBy({ it.startMillis }, { it.title }))
 
         val byDay = upcoming.groupBy { dateOf(it, zone) }
