@@ -14,7 +14,13 @@ Wear OS 내장 Google Calendar 앱은 **시계에 직접 로그인된 계정**�
 | --- | --- |
 | `:shared` | 두 앱이 공유하는 데이터 모델(`CalendarEvent`, `CalendarSnapshot`)과 Data Layer 경로/키 상수 |
 | `:mobile` | 폰 앱. `READ_CALENDAR` 권한, `CalendarContract` 조회, 워치로 push |
-| `:wear` | 워치 앱. Data Layer 수신, 로컬 캐시, Compose for Wear OS 아젠다 UI |
+| `:wear` | 워치 앱. Data Layer 수신, 로컬 캐시, 아젠다 UI + Tile + Complication |
+
+워치의 세 표면(앱 화면 / Tile / Complication)은 **모두 같은 `SnapshotStore` 캐시**를
+읽는다. 폰이 없어도 전부 동작하고, 서로 다른 내용을 보여줄 수가 없다. 동기화가
+도착하면 `CalendarDataListenerService`가 Tile과 Complication 갱신을 함께 요청한다 —
+Complication은 폴링을 하지 않으므로(`UPDATE_PERIOD_SECONDS=0`) 이게 유일한 갱신
+경로다.
 
 `:mobile`과 `:wear`는 **applicationId가 동일해야** 한다 (`dev.lutergs.watchcalsync`).
 Data Layer는 applicationId + 서명 키로 폰/워치 앱을 짝지으므로 둘 중 하나라도 다르면
@@ -83,7 +89,7 @@ grep unstable wear/build/compose-reports/wear-composables.txt
 - [x] **3단계** — `:wear` 아젠다 리스트 UI (날짜 그룹 + 색상 + 로터리 스크롤)
 - [x] **4단계** — `ContentObserver`(포그라운드) + content-URI 트리거(백그라운드) + 30분 주기 백스톱
 - [x] ~~5단계~~ — 캘린더별 on/off 필터 (중복 공휴일 때문에 1.5단계로 앞당김)
-- [ ] **5단계 (스트레치)** — Tile / Complication
+- [x] **5단계** — Tile(다음 7일), Complication(다음 일정), 워치→폰 동기화 요청
 
 ### 1단계 확인 방법
 

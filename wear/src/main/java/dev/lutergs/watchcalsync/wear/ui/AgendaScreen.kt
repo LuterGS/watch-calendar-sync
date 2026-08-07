@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -95,28 +96,32 @@ fun AgendaScreen(
                 // kind and cannot reuse their very different layouts.
                 contentType = { it.contentType },
             ) { row ->
+                // Built once per item slot rather than per recomposition. Items
+                // recompose on every scroll frame — that is how the morph tracks
+                // scroll position — so allocating a Modifier chain and a
+                // SurfaceTransformation inline meant two allocations per visible
+                // item per frame, on the UI thread that the jank was traced to.
+                val itemModifier = remember(transformSpec) {
+                    Modifier.transformedHeight(this, transformSpec)
+                }
+                val transformation = remember(transformSpec) {
+                    SurfaceTransformation(transformSpec)
+                }
+
                 when (row) {
                     is AgendaRow.DayHeader ->
                         ListHeader(
-                            modifier = Modifier.transformedHeight(this, transformSpec),
-                            transformation = SurfaceTransformation(transformSpec),
+                            modifier = itemModifier,
+                            transformation = transformation,
                         ) {
                             Text(row.label)
                         }
 
                     is AgendaRow.AllDay ->
-                        AllDayCard(
-                            row = row,
-                            modifier = Modifier.transformedHeight(this, transformSpec),
-                            transformation = SurfaceTransformation(transformSpec),
-                        )
+                        AllDayCard(row, itemModifier, transformation)
 
                     is AgendaRow.Event ->
-                        EventCard(
-                            row = row,
-                            modifier = Modifier.transformedHeight(this, transformSpec),
-                            transformation = SurfaceTransformation(transformSpec),
-                        )
+                        EventCard(row, itemModifier, transformation)
                 }
             }
 
@@ -127,6 +132,11 @@ fun AgendaScreen(
     }
 }
 
+// Constant across every row, so building them once at class-init keeps the scroll
+// path from rebuilding identical Modifier chains each frame.
+private val CardModifier = Modifier.fillMaxWidth()
+private val DotModifier = Modifier.size(8.dp).clip(CircleShape)
+
 @Composable
 private fun AllDayCard(
     row: AgendaRow.AllDay,
@@ -135,7 +145,7 @@ private fun AllDayCard(
 ) {
     Card(
         onClick = {},
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.then(CardModifier),
         transformation = transformation,
         colors = CardDefaults.cardColors(),
     ) {
@@ -143,12 +153,7 @@ private fun AllDayCard(
             // One dot per contributing calendar, so a merged row still shows it
             // came from more than one place.
             row.dotColors.forEach { color ->
-                Box(
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(color),
-                )
+                Box(DotModifier.background(color))
                 Spacer(Modifier.width(3.dp))
             }
             Spacer(Modifier.width(3.dp))
@@ -160,7 +165,7 @@ private fun AllDayCard(
             )
         }
 
-        Spacer(Modifier.padding(top = 2.dp))
+        Spacer(Modifier.height(2.dp))
 
         Text(
             text = row.titles,
@@ -180,19 +185,14 @@ private fun EventCard(
 ) {
     Card(
         onClick = {},
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.then(CardModifier),
         transformation = transformation,
         colors = CardDefaults.cardColors(),
     ) {
         // Time first, then title — the same reading order Google Calendar uses on
         // Wear, because the time is what you are actually glancing for.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(row.dotColor),
-            )
+            Box(DotModifier.background(row.dotColor))
             Spacer(Modifier.width(6.dp))
             Text(
                 text = row.timeLabel,
@@ -202,7 +202,7 @@ private fun EventCard(
             )
         }
 
-        Spacer(Modifier.padding(top = 2.dp))
+        Spacer(Modifier.height(2.dp))
 
         Text(
             text = row.title,
@@ -248,7 +248,7 @@ private fun EmptyState(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.padding(top = 12.dp))
+        Spacer(Modifier.height(12.dp))
         Button(onClick = onRefresh, enabled = !refreshing) {
             Text(if (refreshing) "요청 중…" else "새로고침")
         }
