@@ -2,6 +2,7 @@ package dev.lutergs.watchcalsync.mobile.ui
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.lutergs.watchcalsync.mobile.calendar.CalendarReader
@@ -19,6 +20,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * [Immutable] because Compose treats `List<T>` as unstable — the interface admits
+ * mutable implementations — even though every list here is built once and never
+ * modified. Without it the whole screen re-composes on any state read.
+ */
+@Immutable
 data class MainUiState(
     val loading: Boolean = false,
     val permissionGranted: Boolean = false,
@@ -33,12 +40,16 @@ data class MainUiState(
     val connectedNodes: List<String> = emptyList(),
     val syncing: Boolean = false,
 ) {
+    // `by lazy`, not `get()`: these are read from composition, and a getter would
+    // re-group all 23 calendars and 48 events on every recomposition.
     /** Calendars grouped by owning account, for the filter UI. */
-    val calendarsByAccount: Map<String, List<CalendarInfo>>
-        get() = calendars.groupBy { it.accountName }
+    val calendarsByAccount: Map<String, List<CalendarInfo>> by lazy {
+        calendars.groupBy { it.accountName }
+    }
 
-    val eventCountByCalendarId: Map<Long, Int>
-        get() = events.groupingBy { it.calendarId }.eachCount()
+    val eventCountByCalendarId: Map<Long, Int> by lazy {
+        events.groupingBy { it.calendarId }.eachCount()
+    }
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {

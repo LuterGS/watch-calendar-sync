@@ -41,6 +41,16 @@ android {
     }
 }
 
+composeCompiler {
+    // :shared has no Compose compiler, so its model classes would otherwise be
+    // inferred unstable and defeat skipping in the agenda list.
+    stabilityConfigurationFiles.add(
+        rootProject.layout.projectDirectory.file("compose_stability.conf")
+    )
+    reportsDestination.set(layout.buildDirectory.dir("compose-reports"))
+    metricsDestination.set(layout.buildDirectory.dir("compose-metrics"))
+}
+
 dependencies {
     implementation(project(":shared"))
 

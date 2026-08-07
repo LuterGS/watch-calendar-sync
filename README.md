@@ -43,13 +43,35 @@ sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
 
 ```bash
 export ANDROID_HOME=~/Android/Sdk
-./gradlew :mobile:assembleDebug :wear:assembleDebug
+./gradlew :mobile:assembleRelease :wear:assembleRelease
 
 # 폰과 워치가 각각 다른 adb 대상이므로 -s 로 지정해서 설치
 adb devices -l
-adb -s <phone-serial> install -r mobile/build/outputs/apk/debug/mobile-debug.apk
-adb -s <watch-serial> install -r wear/build/outputs/apk/debug/wear-debug.apk
+adb -s <phone-serial> install -r mobile/build/outputs/apk/release/mobile-release.apk
+adb -s <watch-serial> install -r wear/build/outputs/apk/release/wear-release.apk
 ```
+
+**워치에는 release 빌드를 쓸 것.** Compose debug 빌드는 release보다 몇 배 느리고,
+워치 CPU에서는 그 차이가 스크롤 버벅임으로 그대로 드러난다. release도 debug 키로
+서명되므로 Data Layer 페어링은 그대로 동작한다. 설치 직후 baseline profile이
+적용되도록 강제하려면:
+
+```bash
+adb -s <watch-serial> shell cmd package compile -f -m speed-profile dev.lutergs.watchcalsync
+```
+
+### Compose 성능 진단
+
+두 앱 모두 Compose 컴파일러 리포트가 켜져 있다. 스크롤이 느려지면 먼저 여기를 본다:
+
+```bash
+./gradlew :wear:assembleDebug --rerun-tasks
+grep unstable wear/build/compose-reports/wear-composables.txt
+```
+
+`unstable` 파라미터가 보이면 그 composable은 스킵되지 않고 매 프레임 재구성된다.
+`:shared`는 Compose 컴파일러가 적용되지 않아 그 모델들이 기본적으로 unstable로
+추론되므로, 루트의 `compose_stability.conf`에 stable로 선언해두었다.
 
 두 APK는 applicationId가 같으므로 **같은 기기에 동시에 설치할 수 없다**. 폰에는
 `:mobile`, 워치에는 `:wear`만 설치한다.
@@ -57,10 +79,11 @@ adb -s <watch-serial> install -r wear/build/outputs/apk/debug/wear-debug.apk
 ## 진행 상황
 
 - [x] **1단계** — `:mobile` 캘린더 읽기 단독 동작 (계정/캘린더/이벤트 로그 출력)
-- [ ] **2단계** — Data Layer로 워치에 전송
-- [ ] **3단계** — `:wear` 리스트 UI 렌더링
+- [x] **2단계** — Data Layer로 워치에 전송 (gzip, 변경 없을 때 전송 생략)
+- [x] **3단계** — `:wear` 아젠다 리스트 UI (날짜 그룹 + 색상 + 로터리 스크롤)
 - [ ] **4단계** — `ContentObserver` + `WorkManager` 자동 동기화
-- [ ] **5단계 (스트레치)** — 캘린더별 on/off 필터, Tile
+- [x] ~~5단계~~ — 캘린더별 on/off 필터 (중복 공휴일 때문에 1.5단계로 앞당김)
+- [ ] **5단계 (스트레치)** — Tile / Complication
 
 ### 1단계 확인 방법
 
