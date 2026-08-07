@@ -59,11 +59,42 @@ adb -s <watch-serial> install -r wear/build/outputs/apk/release/wear-release.apk
 
 **워치에는 release 빌드를 쓸 것.** Compose debug 빌드는 release보다 몇 배 느리고,
 워치 CPU에서는 그 차이가 스크롤 버벅임으로 그대로 드러난다. release도 debug 키로
-서명되므로 Data Layer 페어링은 그대로 동작한다. 설치 직후 baseline profile이
-적용되도록 강제하려면:
+서명되므로 Data Layer 페어링은 그대로 동작한다.
+
+### baseline profile — 순서가 중요하다
+
+`wear/src/main/baseline-prof.txt`가 이 앱 코드의 AOT 컴파일 규칙을 담고 있다.
+AGP가 번들하는 `assets/dexopt/baseline.prof`에는 **라이브러리 코드만** 들어가므로,
+이게 없으면 우리 컴포저블이 첫 실행에 인터프리터로 돌아 첫 스크롤이 눈에 띄게
+버벅인다 (측정: jank 16.1% → **1.15%**, p90 57ms → **21ms**, missed vsync 74 → **0**).
 
 ```bash
-adb -s <watch-serial> shell cmd package compile -f -m speed-profile dev.lutergs.watchcalsync
+adb -s <watch> install wear/.../wear-release.apk   # -r 업그레이드 말고 신규 설치
+adb -s <watch> shell am start -n dev.lutergs.watchcalsync/.wear.ui.MainActivity
+# logcat 에 "ProfileInstaller: Installing profile" 이 뜬 뒤에
+adb -s <watch> shell cmd package compile -f -m speed-profile dev.lutergs.watchcalsync
+adb -s <watch> shell dumpsys package dev.lutergs.watchcalsync | grep status=
+#   -> [status=speed-profile] 이어야 한다. verify 면 프로파일이 아직 안 심긴 것
+```
+
+프로파일에 우리 코드가 실제로 들어갔는지 확인:
+
+```bash
+profgen dumpProfile -p baseline.prof -a wear-release.apk -o dump.txt
+grep -c lutergs dump.txt    # 0 이면 규칙이 아무것도 매칭 안 된 것
+```
+
+### 성능을 측정할 때
+
+**콜드끼리, 웜끼리 비교할 것.** 한 번은 이걸 어겨서 웜 9.6% 와 콜드 17.8% 를 비교하고
+회귀라고 잘못 판단한 적이 있다.
+
+```bash
+adb -s <watch> shell am force-stop dev.lutergs.watchcalsync
+adb -s <watch> shell am start -n dev.lutergs.watchcalsync/.wear.ui.MainActivity
+adb -s <watch> shell dumpsys gfxinfo dev.lutergs.watchcalsync reset
+# 손으로 5~10초 스크롤 (adb 터치/로터리 주입은 이 리스트를 스크롤하지 못한다)
+adb -s <watch> shell dumpsys gfxinfo dev.lutergs.watchcalsync | grep -E "Janky|percentile"
 ```
 
 ### Compose 성능 진단

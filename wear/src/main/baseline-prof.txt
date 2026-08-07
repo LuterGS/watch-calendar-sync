@@ -1,0 +1,39 @@
+# Baseline profile for this app's own code.
+#
+# AGP already merges the AndroidX/Compose library profiles into
+# assets/dexopt/baseline.prof, but those cover library classes only — the bundled
+# profile contained zero references to dev.lutergs.watchcalsync. That left every
+# composable here, the agenda builder and the snapshot decoder running
+# interpreted on first execution, which is why the first scroll was rough and
+# everything after it was smooth: ART only JITs the hot paths once they have been
+# hit enough times.
+#
+# These rules are hand-written wildcards rather than generated from a
+# macrobenchmark run. That is coarser than a measured profile — it AOT-compiles
+# more than is strictly hot — but for an app this size the extra dex is
+# negligible and it needs no benchmark module or instrumented run to stay
+# current.
+#
+# Flags: H = hot, S = startup, P = post-startup.
+
+# Watch UI: the agenda list and everything it composes on every scroll frame.
+HSPLdev/lutergs/watchcalsync/wear/ui/**->**(**)**
+Ldev/lutergs/watchcalsync/wear/ui/**
+
+# Snapshot cache: read during startup before the first frame can be drawn.
+HSPLdev/lutergs/watchcalsync/wear/data/**->**(**)**
+Ldev/lutergs/watchcalsync/wear/data/**
+
+# Data Layer receive path and the watch-initiated sync request.
+HSPLdev/lutergs/watchcalsync/wear/sync/**->**(**)**
+Ldev/lutergs/watchcalsync/wear/sync/**
+
+# Tile and complication: separate entry points, each cold-started by the system.
+HSPLdev/lutergs/watchcalsync/wear/tile/**->**(**)**
+Ldev/lutergs/watchcalsync/wear/tile/**
+HSPLdev/lutergs/watchcalsync/wear/complication/**->**(**)**
+Ldev/lutergs/watchcalsync/wear/complication/**
+
+# Shared models and codec — deserialised on every sync and read on every frame.
+HSPLdev/lutergs/watchcalsync/shared/**->**(**)**
+Ldev/lutergs/watchcalsync/shared/**
