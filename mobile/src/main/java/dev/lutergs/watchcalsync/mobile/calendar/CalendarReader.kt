@@ -167,14 +167,22 @@ class CalendarReader(private val context: Context) {
         now: Long = System.currentTimeMillis(),
         pastDays: Long = DEFAULT_PAST_DAYS,
         futureDays: Long = DEFAULT_FUTURE_DAYS,
+        calendars: List<CalendarInfo>? = null,
+        enabledCalendarIds: Set<Long>? = null,
     ): CalendarSnapshot {
         val start = now - TimeUnit.DAYS.toMillis(pastDays)
         val end = now + TimeUnit.DAYS.toMillis(futureDays)
+        val cals = calendars ?: queryCalendars()
         return CalendarSnapshot(
             generatedAtMillis = now,
             windowStartMillis = start,
             windowEndMillis = end,
-            events = queryEvents(start, end, queryCalendars()),
+            events = queryEvents(
+                windowStartMillis = start,
+                windowEndMillis = end,
+                calendars = cals,
+                enabledCalendarIds = enabledCalendarIds ?: defaultEnabledCalendarIds(cals),
+            ),
         )
     }
 
@@ -182,9 +190,13 @@ class CalendarReader(private val context: Context) {
      * Dumps calendars and the current window to logcat. This is the step-1
      * verification hook: `adb logcat -s WatchCalSync`.
      */
-    suspend fun logDiagnostics() {
-        val calendars = queryCalendars()
-        val enabled = defaultEnabledCalendarIds(calendars)
+    suspend fun logDiagnostics(
+        calendars: List<CalendarInfo>? = null,
+        enabledCalendarIds: Set<Long>? = null,
+    ) {
+        @Suppress("NAME_SHADOWING")
+        val calendars = calendars ?: queryCalendars()
+        val enabled = enabledCalendarIds ?: defaultEnabledCalendarIds(calendars)
 
         Log.i(TAG, "===== Calendars (${calendars.size}) =====")
         calendars.forEach {
@@ -198,7 +210,7 @@ class CalendarReader(private val context: Context) {
         }
         Log.i(TAG, "distinct accounts = ${calendars.map { it.accountName }.distinct()}")
 
-        val snap = snapshot()
+        val snap = snapshot(calendars = calendars, enabledCalendarIds = enabled)
         val byAccount = snap.events.groupingBy { it.accountName }.eachCount()
         Log.i(TAG, "===== Events (${snap.events.size}) in window, per account: $byAccount =====")
         snap.events.forEach {

@@ -1,6 +1,7 @@
 package dev.lutergs.watchcalsync.mobile.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,13 +18,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,76 +46,193 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     state: MainUiState,
     onRefresh: () -> Unit,
     onRequestPermission: () -> Unit,
+    onCalendarEnabledChange: (Long, Boolean) -> Unit,
+    onCalendarsEnabledChange: (Set<Long>, Boolean) -> Unit,
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("Watch Calendar Sync") }) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
         ) {
-            when {
-                !state.permissionGranted -> PermissionPrompt(onRequestPermission)
+            if (!state.permissionGranted) {
+                PermissionPrompt(onRequestPermission)
+                return@Column
+            }
 
-                else -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "캘린더 ${state.calendars.size}개 · 일정 ${state.events.size}건",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Button(onClick = onRefresh, enabled = !state.loading) {
-                            Text("새로고침")
-                        }
-                    }
+            PrimaryTabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("일정 ${state.events.size}") },
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("캘린더 ${state.enabledCalendarIds.size}/${state.calendars.size}") },
+                )
+            }
 
-                    state.error?.let {
-                        Text(
-                            text = it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
+            if (state.loading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
 
-                    if (state.loading) {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
+            state.error?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
 
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { SectionHeader("발견된 캘린더") }
-                        items(state.calendars, key = { it.id }) { CalendarRow(it) }
-
-                        item {
-                            Spacer(Modifier.height(8.dp))
-                            HorizontalDivider()
-                            SectionHeader("일정 (어제 ~ +14일)")
-                        }
-                        items(state.events, key = { it.occurrenceKey }) { EventRow(it) }
-
-                        if (state.events.isEmpty() && !state.loading) {
-                            item {
-                                Text(
-                                    "표시할 일정이 없습니다.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                when (selectedTab) {
+                    0 -> AgendaTab(state, onRefresh)
+                    else -> CalendarFilterTab(
+                        state = state,
+                        onCalendarEnabledChange = onCalendarEnabledChange,
+                        onCalendarsEnabledChange = onCalendarsEnabledChange,
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AgendaTab(state: MainUiState, onRefresh: () -> Unit) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("어제 ~ +14일", style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = onRefresh, enabled = !state.loading) { Text("새로고침") }
+            }
+        }
+
+        items(state.events, key = { it.occurrenceKey }) { EventRow(it) }
+
+        if (state.events.isEmpty() && !state.loading) {
+            item {
+                Text(
+                    "표시할 일정이 없습니다. '캘린더' 탭에서 동기화할 캘린더를 켜세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarFilterTab(
+    state: MainUiState,
+    onCalendarEnabledChange: (Long, Boolean) -> Unit,
+    onCalendarsEnabledChange: (Set<Long>, Boolean) -> Unit,
+) {
+    val counts = state.eventCountByCalendarId
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item {
+            Text(
+                text = "켜진 캘린더의 일정만 워치로 전송됩니다. 건수는 현재 조회 구간(어제~+14일) 기준입니다.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+
+        state.calendarsByAccount.forEach { (account, calendars) ->
+            item(key = "header-$account") {
+                AccountHeader(
+                    account = account,
+                    calendars = calendars,
+                    enabledIds = state.enabledCalendarIds,
+                    onCalendarsEnabledChange = onCalendarsEnabledChange,
+                )
+            }
+            items(calendars, key = { it.id }) { calendar ->
+                CalendarToggleRow(
+                    calendar = calendar,
+                    enabled = calendar.id in state.enabledCalendarIds,
+                    eventCount = counts[calendar.id] ?: 0,
+                    onEnabledChange = { onCalendarEnabledChange(calendar.id, it) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountHeader(
+    account: String,
+    calendars: List<CalendarInfo>,
+    enabledIds: Set<Long>,
+    onCalendarsEnabledChange: (Set<Long>, Boolean) -> Unit,
+) {
+    val allOn = calendars.all { it.id in enabledIds }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = account,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        TextButton(onClick = {
+            onCalendarsEnabledChange(calendars.map { it.id }.toSet(), !allOn)
+        }) {
+            Text(if (allOn) "모두 끄기" else "모두 켜기")
+        }
+    }
+}
+
+@Composable
+private fun CalendarToggleRow(
+    calendar: CalendarInfo,
+    enabled: Boolean,
+    eventCount: Int,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onEnabledChange(!enabled) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = enabled, onCheckedChange = onEnabledChange)
+        ColorDot(calendar.color)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(calendar.displayName, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                // synced=false calendars hold no fresh rows, so flag them: turning
+                // one on will not produce events.
+                text = if (calendar.synced) "$eventCount 건" else "$eventCount 건 · 동기화 꺼짐",
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
@@ -121,40 +247,6 @@ private fun PermissionPrompt(onRequestPermission: () -> Unit) {
         Text("캘린더 읽기 권한이 필요합니다.")
         Spacer(Modifier.height(12.dp))
         Button(onClick = onRequestPermission) { Text("권한 허용") }
-    }
-}
-
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(vertical = 8.dp),
-    )
-}
-
-@Composable
-private fun CalendarRow(calendar: CalendarInfo) {
-    Card(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ColorDot(calendar.color)
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(calendar.displayName, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    text = "${calendar.accountName} · ${calendar.accountType}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "visible=${calendar.visible} synced=${calendar.synced}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
     }
 }
 

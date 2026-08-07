@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
                         onRequestPermission = {
                             permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                         },
+                        onCalendarEnabledChange = vm::setCalendarEnabled,
+                        onCalendarsEnabledChange = vm::setCalendarsEnabled,
                     )
                 }
             }
