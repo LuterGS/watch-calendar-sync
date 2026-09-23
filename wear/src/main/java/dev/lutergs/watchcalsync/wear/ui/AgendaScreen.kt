@@ -4,13 +4,11 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnState
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.Button
@@ -38,12 +37,16 @@ import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
+import java.time.ZoneId
 
 @Composable
 fun AgendaScreen(
     snapshot: CalendarSnapshot?,
     refreshing: Boolean = false,
     onRefresh: () -> Unit = {},
+    onSettings: () -> Unit = {},
+    nowMillis: Long = System.currentTimeMillis(),
+    zone: ZoneId = ZoneId.systemDefault(),
 ) {
     val listState = rememberTransformingLazyColumnState()
 
@@ -67,11 +70,14 @@ fun AgendaScreen(
                 message = "폰에서 동기화를 기다리는 중",
                 refreshing = refreshing,
                 onRefresh = onRefresh,
+                onSettings = onSettings,
+                listState = listState,
+                contentPadding = contentPadding,
             )
             return@ScreenScaffold
         }
 
-        val rows = remember(snapshot) { AgendaBuilder.build(snapshot) }
+        val rows = remember(snapshot, nowMillis, zone) { AgendaBuilder.build(snapshot, nowMillis, zone) }
         LaunchedEffect(rows) {
             Log.i("WatchCalSync", "agenda: ${rows.size} rows from ${snapshot.events.size} events")
         }
@@ -80,6 +86,9 @@ fun AgendaScreen(
                 message = "예정된 일정이 없습니다",
                 refreshing = refreshing,
                 onRefresh = onRefresh,
+                onSettings = onSettings,
+                listState = listState,
+                contentPadding = contentPadding,
             )
             return@ScreenScaffold
         }
@@ -124,6 +133,9 @@ fun AgendaScreen(
                 }
             }
 
+            item(key = "settings", contentType = "settings") {
+                Button(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("설정") }
+            }
             item(key = "refresh", contentType = "refresh") {
                 RefreshEdgeButton(refreshing = refreshing, onRefresh = onRefresh)
             }
@@ -235,21 +247,30 @@ private fun EmptyState(
     message: String,
     refreshing: Boolean,
     onRefresh: () -> Unit,
+    onSettings: () -> Unit,
+    listState: TransformingLazyColumnState,
+    contentPadding: PaddingValues,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    // Keep actions reachable on a small round screen, including with larger text.
+    TransformingLazyColumn(
+        state = listState,
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = message,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = onRefresh, enabled = !refreshing) {
-            Text(if (refreshing) "요청 중…" else "새로고침")
+        item {
+            Text(
+                text = message,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item { Button(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("설정") } }
+        item {
+            Button(onClick = onRefresh, enabled = !refreshing, modifier = Modifier.fillMaxWidth()) {
+                Text(if (refreshing) "요청 중…" else "새로고침")
+            }
         }
     }
 }

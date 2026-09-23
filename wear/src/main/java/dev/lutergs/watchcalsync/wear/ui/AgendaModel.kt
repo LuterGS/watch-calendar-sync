@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import dev.lutergs.watchcalsync.shared.model.CalendarEvent
 import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
+import dev.lutergs.watchcalsync.wear.data.localEndMillis
+import dev.lutergs.watchcalsync.wear.data.localStartMillis
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -76,12 +78,16 @@ object AgendaBuilder {
     ): List<AgendaRow> {
         val upcoming = snapshot.events
             .filter {
-                it.endMillis > nowMillis &&
-                    (horizonMillis == null || it.startMillis < horizonMillis)
+                it.localEndMillis(zone) > nowMillis &&
+                    (horizonMillis == null || it.localStartMillis(zone) < horizonMillis)
             }
-            .sortedWith(compareBy({ it.startMillis }, { it.title }))
+            .sortedWith(compareBy({ it.localStartMillis(zone) }, { it.title }))
 
-        val byDay = upcoming.groupBy { dateOf(it, zone) }
+        val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+        val byDay = upcoming.groupBy {
+            val startDate = dateOf(it, zone)
+            if (it.allDay && startDate < today) today else startDate
+        }
 
         val rows = ArrayList<AgendaRow>(upcoming.size + 8)
         for ((date, events) in byDay.entries.sortedBy { it.key }) {

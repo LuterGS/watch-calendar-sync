@@ -30,6 +30,13 @@
             </intent-filter>
         </service>
 
+        <receiver android:name=".sync.TimeChangeReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Watch-face complication: the next event. -->
         <service
             android:name=".complication.NextEventComplicationService"
@@ -44,9 +51,8 @@
                 android:name="android.support.wearable.complications.SUPPORTED_TYPES"
                 android:value="SHORT_TEXT,LONG_TEXT" />
 
-            <!-- 0 = never poll. The data only changes when a sync lands, and the
-                 sync path calls requestUpdate() itself, so polling would just burn
-                 battery re-reading an unchanged file. -->
+            <!-- Timeline entries handle midnight/event transitions without polling.
+                 Sync and settings changes explicitly request a new timeline. -->
             <meta-data
                 android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
                 android:value="0" />

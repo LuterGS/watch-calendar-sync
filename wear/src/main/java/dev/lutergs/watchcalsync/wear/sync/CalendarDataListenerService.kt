@@ -56,10 +56,7 @@ class CalendarDataListenerService : WearableListenerService() {
 
                     runBlocking { SnapshotStore.get(applicationContext).save(snapshot) }
 
-                    // Without these the tile and the watch face would keep showing
-                    // the previous agenda until their own update periods elapsed.
-                    // The complication in particular never polls, so this is the
-                    // only thing that refreshes it.
+                    // Replace both cached surfaces, including the complication timeline.
                     TileService.getUpdater(applicationContext)
                         .requestUpdate(AgendaTileService::class.java)
                     NextEventComplicationService.requestUpdate(applicationContext)

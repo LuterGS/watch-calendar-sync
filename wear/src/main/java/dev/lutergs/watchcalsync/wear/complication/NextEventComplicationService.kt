@@ -9,11 +9,17 @@ import androidx.wear.watchface.complications.data.ComplicationType
 import androidx.wear.watchface.complications.data.LongTextComplicationData
 import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.ShortTextComplicationData
-import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
-import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
+import androidx.wear.watchface.complications.datasource.ComplicationDataTimeline
+import androidx.wear.watchface.complications.datasource.ComplicationRequest
+import androidx.wear.watchface.complications.datasource.SuspendingTimelineComplicationDataSourceService
+import androidx.wear.watchface.complications.datasource.TimeInterval
+import androidx.wear.watchface.complications.datasource.TimelineEntry
 import dev.lutergs.watchcalsync.wear.data.SnapshotStore
+import dev.lutergs.watchcalsync.wear.settings.WatchSettings
 import dev.lutergs.watchcalsync.wear.ui.MainActivity
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Watch-face complication showing the next event.
@@ -22,14 +28,31 @@ import dev.lutergs.watchcalsync.wear.ui.MainActivity
  * no phone in range. Only SHORT_TEXT and LONG_TEXT are offered: the data is text,
  * and claiming ranged or icon types would put this in slots it cannot fill well.
  */
-class NextEventComplicationService : SuspendingComplicationDataSourceService() {
+class NextEventComplicationService : SuspendingTimelineComplicationDataSourceService() {
 
-    override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData? {
+    override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationDataTimeline? {
         val store = SnapshotStore.get(applicationContext)
         val snapshot = store.snapshot.value ?: store.load()
-        val next = NextEventFormatter.next(snapshot)
+        val mode = WatchSettings(applicationContext).eventMode
+        val now = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
+        val fallback = data(request.complicationType, NextEventFormatter.next(null, now, zone, mode))
+            ?: return null
+        return ComplicationDataTimeline(
+            defaultComplicationData = fallback,
+            timelineEntries = EventTimeline.build(snapshot, now, zone, mode).map { entry ->
+                TimelineEntry(
+                    validity = TimeInterval(
+                        Instant.ofEpochMilli(entry.startMillis), Instant.ofEpochMilli(entry.endMillis),
+                    ),
+                    complicationData = data(request.complicationType, entry.text)!!,
+                )
+            },
+        )
+    }
 
-        return when (request.complicationType) {
+    private fun data(type: ComplicationType, next: NextEventText): ComplicationData? {
+        return when (type) {
             ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(
                 text = PlainComplicationText.Builder(next.shortText).build(),
                 contentDescription = PlainComplicationText.Builder(next.description).build(),

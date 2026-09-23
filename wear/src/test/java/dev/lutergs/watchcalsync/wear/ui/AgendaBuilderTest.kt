@@ -147,4 +147,55 @@ class AgendaBuilderTest {
         val rows = AgendaBuilder.build(snapshot(listOf(timed(14, "회의", location = "   "))), nowMillis, zone)
         assertNull(rows.filterIsInstance<AgendaRow.Event>().single().location)
     }
+    @Test
+    fun `previous all-day event disappears exactly at Seoul midnight`() {
+        val data = snapshot(listOf(
+            allDay(now.toLocalDate().minusDays(1), "어제", 0, 1),
+            allDay(now.toLocalDate(), "오늘", 0, 1),
+        ))
+        val midnight = now.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+        for (time in listOf(midnight, midnight + TimeUnit.HOURS.toMillis(1))) {
+            val rows = AgendaBuilder.build(data, time, zone)
+            assertEquals("오늘", rows.filterIsInstance<AgendaRow.AllDay>().single().titles)
+            assertEquals("8월 7일 (금)", rows.filterIsInstance<AgendaRow.DayHeader>().single().label)
+        }
+    }
+
+    @Test
+    fun `negative UTC offset retains all-day event until local midnight`() {
+        val la = ZoneId.of("America/Los_Angeles")
+        val evening = ZonedDateTime.of(2026, 8, 7, 23, 0, 0, 0, la).toInstant().toEpochMilli()
+        val data = snapshot(listOf(allDay(now.toLocalDate(), "오늘", 0, 1)))
+        assertEquals(1, AgendaBuilder.build(data, evening, la).filterIsInstance<AgendaRow.AllDay>().size)
+        assertTrue(AgendaBuilder.build(data, evening + TimeUnit.HOURS.toMillis(1), la).isEmpty())
+    }
+
+    @Test
+    fun `multiday all-day event groups under current date`() {
+        val trip = allDay(now.toLocalDate().minusDays(1), "여행", 0, 1).copy(
+            endMillis = now.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+        )
+        val rows = AgendaBuilder.build(snapshot(listOf(trip)), nowMillis, zone)
+        assertEquals("8월 7일 (금)", rows.filterIsInstance<AgendaRow.DayHeader>().single().label)
+    }
+
+    @Test
+    fun `all-day end follows local midnight on DST transition day`() {
+        val la = ZoneId.of("America/Los_Angeles")
+        val date = LocalDate.of(2026, 3, 8)
+        val event = allDay(date, "DST 일요일", 0, 1)
+        val midnight = date.plusDays(1).atStartOfDay(la).toInstant().toEpochMilli()
+        assertEquals(1, AgendaBuilder.build(snapshot(listOf(event)), midnight - 1, la)
+            .filterIsInstance<AgendaRow.AllDay>().size)
+        assertTrue(AgendaBuilder.build(snapshot(listOf(event)), midnight, la).isEmpty())
+    }
+
+    @Test
+    fun `all-day horizon uses local start rather than UTC instant`() {
+        val start = now.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+        val data = snapshot(listOf(allDay(now.toLocalDate(), "오늘", 0, 1)))
+        val rows = AgendaBuilder.build(data, start, zone, horizonMillis = start + TimeUnit.HOURS.toMillis(2))
+        assertEquals("오늘", rows.filterIsInstance<AgendaRow.AllDay>().single().titles)
+    }
+
 }

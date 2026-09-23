@@ -1,8 +1,10 @@
 package dev.lutergs.watchcalsync.wear.complication
 
 import dev.lutergs.watchcalsync.shared.model.CalendarSnapshot
+import dev.lutergs.watchcalsync.wear.data.localEndMillis
+import dev.lutergs.watchcalsync.wear.data.localStartMillis
+import dev.lutergs.watchcalsync.wear.settings.EventMode
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -32,24 +34,33 @@ object NextEventFormatter {
         snapshot: CalendarSnapshot?,
         nowMillis: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
+        mode: EventMode = EventMode.UPCOMING,
     ): NextEventText {
         val event = snapshot?.events
-            ?.filter { it.endMillis > nowMillis }
+            ?.filter {
+                when (mode) {
+                    EventMode.UPCOMING -> !it.allDay && it.startMillis > nowMillis
+                    EventMode.ALL_DAY -> it.allDay && it.localStartMillis(zone) <= nowMillis &&
+                        it.localEndMillis(zone) > nowMillis
+                }
+            }
             ?.minWithOrNull(compareBy({ it.startMillis }, { it.title }))
             ?: return NextEventText(
                 shortText = "—",
                 shortTitle = null,
-                longText = "예정된 일정 없음",
+                longText = if (mode == EventMode.ALL_DAY) "오늘 종일 일정 없음" else "예정된 일정 없음",
                 longTitle = null,
-                description = "예정된 일정 없음",
+                description = if (mode == EventMode.ALL_DAY) "오늘 종일 일정 없음" else "예정된 일정 없음",
             )
 
-        val today = LocalDate.now(zone)
+        val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
         // All-day events sit on UTC midnight boundaries; resolving them locally
         // shifts them onto the wrong day.
-        val date = Instant.ofEpochMilli(event.startMillis)
+        val startDate = Instant.ofEpochMilli(event.startMillis)
             .atZone(if (event.allDay) ZoneOffset.UTC else zone)
             .toLocalDate()
+
+        val date = if (event.allDay) today else startDate
 
         val time = when {
             event.allDay -> "종일"
